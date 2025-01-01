@@ -1,10 +1,10 @@
-# WebCrawler API .NET SDK
+# A WebCrawler API .NET SDK
 
 [![NuGet](https://img.shields.io/nuget/v/WebCrawlerApi.svg?style=flat-square)](https://www.nuget.org/packages/WebCrawlerApi)
 [![NuGet](https://img.shields.io/nuget/dt/WebCrawlerApi.svg?style=flat-square)](https://www.nuget.org/packages/WebCrawlerApi)
 [![License](https://img.shields.io/github/license/webcrawlerapi/webcrawlerapi-dotnet-sdk.svg?style=flat-square)](https://github.com/webcrawlerapi/webcrawlerapi-dotnet-sdk/blob/main/LICENSE)
 
-A .NET SDK for interacting with the WebCrawlerAPI - a powerful web crawling and scraping service.
+A .NET SDK for interacting with the WebCrawlerAPI. WebCrawlerAPI allows you to turn any website into data. Read more at [WebCrawlerAPI](https://webcrawlerapi.com).
 
 > In order to use the API you have to get an API key from [WebCrawlerAPI](https://dash.webcrawlerapi.com/access)
 
