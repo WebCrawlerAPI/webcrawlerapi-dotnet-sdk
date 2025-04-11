@@ -60,7 +60,17 @@ namespace WebCrawlerApi
             };
 
             var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/{_version}/crawl", payload, cancellationToken);
-            response.EnsureSuccessStatusCode();
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorResponse = await response.Content.ReadFromJsonAsync<CrawlResponse>(cancellationToken: cancellationToken);
+                if (errorResponse != null)
+                {
+                    return errorResponse;
+                }
+                
+                throw new HttpRequestException($"Request failed with status code {response.StatusCode}");
+            }
             
             return await response.Content.ReadFromJsonAsync<CrawlResponse>(cancellationToken: cancellationToken) 
                    ?? throw new JsonException("Failed to deserialize response");

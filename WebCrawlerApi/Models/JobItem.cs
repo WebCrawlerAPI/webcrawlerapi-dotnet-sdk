@@ -36,7 +36,7 @@ namespace WebCrawlerApi.Models
         public DateTime UpdatedAt { get; set; }
 
         [JsonPropertyName("cost")]
-        public int Cost { get; set; }
+        public float Cost { get; set; }
 
         [JsonPropertyName("referred_url")]
         public string ReferredUrl { get; set; } = string.Empty;

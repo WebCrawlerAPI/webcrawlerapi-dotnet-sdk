@@ -56,6 +56,9 @@ namespace WebCrawlerApi.Models
         [JsonPropertyName("webhook_error")]
         public string? WebhookError { get; set; }
 
+        [JsonPropertyName("error_code")]
+        public string? ErrorCode { get; set; }
+
         [JsonPropertyName("job_items")]
         public IReadOnlyList<JobItem> JobItems { get; set; } = new List<JobItem>();
 
