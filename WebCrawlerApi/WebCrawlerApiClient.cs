@@ -46,6 +46,7 @@ namespace WebCrawlerApi
             bool allowSubdomains = false,
             string? whitelistRegexp = null,
             string? blacklistRegexp = null,
+            bool mainContentOnly = false,
             CancellationToken cancellationToken = default)
         {
             var payload = new
@@ -56,7 +57,8 @@ namespace WebCrawlerApi
                 allow_subdomains = allowSubdomains,
                 webhook_url = webhookUrl,
                 whitelist_regexp = whitelistRegexp,
-                blacklist_regexp = blacklistRegexp
+                blacklist_regexp = blacklistRegexp,
+                main_content_only = mainContentOnly
             };
 
             var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/{_version}/crawl", payload, cancellationToken);
@@ -129,6 +131,7 @@ namespace WebCrawlerApi
             bool allowSubdomains = false,
             string? whitelistRegexp = null,
             string? blacklistRegexp = null,
+            bool mainContentOnly = false,
             int maxPolls = 100,
             CancellationToken cancellationToken = default)
         {
@@ -140,6 +143,7 @@ namespace WebCrawlerApi
                 allowSubdomains,
                 whitelistRegexp,
                 blacklistRegexp,
+                mainContentOnly,
                 cancellationToken);
 
             var polls = 0;
