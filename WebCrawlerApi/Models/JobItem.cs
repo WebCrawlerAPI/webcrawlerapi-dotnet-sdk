@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Text.Json.Serialization;
@@ -52,6 +53,9 @@ namespace WebCrawlerApi.Models
 
         [JsonPropertyName("markdown_content_url")]
         public string? MarkdownContentUrl { get; set; }
+
+        [JsonPropertyName("links")]
+        public IReadOnlyList<string>? Links { get; set; }
 
         [JsonConstructor]
         public JobItem()

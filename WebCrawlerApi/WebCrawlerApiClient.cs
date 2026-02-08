@@ -104,7 +104,8 @@ namespace WebCrawlerApi
                     LastError = item.LastError,
                     RawContentUrl = item.RawContentUrl,
                     CleanedContentUrl = item.CleanedContentUrl,
-                    MarkdownContentUrl = item.MarkdownContentUrl
+                    MarkdownContentUrl = item.MarkdownContentUrl,
+                    Links = item.Links
                 };
                 return newItem;
             }).ToList();
@@ -166,6 +167,60 @@ namespace WebCrawlerApi
 
             // Return the last known state if max_polls is reached
             return await GetJobAsync(response.Id, cancellationToken);
+        }
+
+        public async Task<ScrapeId> ScrapeAsync(
+            ScrapeRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/v2/scrape?async=true", request, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorResponse = await response.Content.ReadFromJsonAsync<ScrapeResponse>(cancellationToken: cancellationToken);
+                if (errorResponse?.ErrorMessage != null)
+                {
+                    throw new HttpRequestException($"Scrape request failed: {errorResponse.ErrorMessage}");
+                }
+
+                throw new HttpRequestException($"Request failed with status code {response.StatusCode}");
+            }
+
+            return await response.Content.ReadFromJsonAsync<ScrapeId>(cancellationToken: cancellationToken)
+                   ?? throw new JsonException("Failed to deserialize scrape ID");
+        }
+
+        public async Task<ScrapeResponse> GetScrapeAsync(
+            string scrapeId,
+            CancellationToken cancellationToken = default)
+        {
+            var response = await _httpClient.GetAsync($"{_baseUrl}/v2/scrape/{scrapeId}", cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            return await response.Content.ReadFromJsonAsync<ScrapeResponse>(cancellationToken: cancellationToken)
+                   ?? throw new JsonException("Failed to deserialize scrape response");
+        }
+
+        public async Task<ScrapeResponse> ScrapeAndWaitAsync(
+            ScrapeRequest request,
+            int maxPolls = 100,
+            CancellationToken cancellationToken = default)
+        {
+            var scrapeId = await ScrapeAsync(request, cancellationToken);
+
+            for (int poll = 0; poll < maxPolls; poll++)
+            {
+                var result = await GetScrapeAsync(scrapeId.Id, cancellationToken);
+
+                if (result.Success || result.ErrorCode != null)
+                {
+                    return result;
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            }
+
+            throw new TimeoutException($"Scrape did not complete within {maxPolls} polls");
         }
 
         public void Dispose()

@@ -62,6 +62,12 @@ namespace WebCrawlerApi.Models
         [JsonPropertyName("job_items")]
         public IReadOnlyList<JobItem> JobItems { get; set; } = new List<JobItem>();
 
+        [JsonPropertyName("prompt")]
+        public string? Prompt { get; set; }
+
+        [JsonPropertyName("structured_data")]
+        public object? StructuredData { get; set; }
+
         public bool IsTerminal => TerminalStatuses.Contains(Status);
     }
 } 
