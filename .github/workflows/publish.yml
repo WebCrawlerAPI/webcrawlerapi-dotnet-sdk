@@ -1,0 +1,48 @@
+name: Publish to NuGet
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Required for NuGet trusted publishing (OIDC)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Validate tag matches csproj version
+        run: |
+          TAG_VERSION=${GITHUB_REF_NAME#v}
+          PROJECT_VERSION=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' WebCrawlerApi/WebCrawlerApi.csproj | head -n1)
+          echo "Tag version: $TAG_VERSION"
+          echo "csproj version: $PROJECT_VERSION"
+          if [ "$TAG_VERSION" != "$PROJECT_VERSION" ]; then
+            echo "Error: tag version ($TAG_VERSION) does not match csproj <Version> ($PROJECT_VERSION)"
+            exit 1
+          fi
+
+      - name: Build
+        run: dotnet build WebCrawlerApi/WebCrawlerApi.csproj -c Release
+
+      - name: Pack
+        run: dotnet pack WebCrawlerApi/WebCrawlerApi.csproj -c Release --no-build -o ./artifacts
+
+      - name: NuGet login (trusted publishing)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: n10ty
+
+      - name: Push to NuGet
+        run: dotnet nuget push "./artifacts/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate

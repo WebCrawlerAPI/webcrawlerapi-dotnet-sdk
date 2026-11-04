@@ -206,9 +206,12 @@ namespace WebCrawlerApi
             int maxPolls = 100,
             CancellationToken cancellationToken = default)
         {
+            // maxPolls is kept for backward compatibility; the wait is bounded by elapsed time.
+            var timeout = TimeSpan.FromSeconds(400);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var scrapeId = await ScrapeAsync(request, cancellationToken);
 
-            for (int poll = 0; poll < maxPolls; poll++)
+            while (true)
             {
                 var result = await GetScrapeAsync(scrapeId.Id, cancellationToken);
 
@@ -217,10 +220,19 @@ namespace WebCrawlerApi
                     return result;
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                var delayMs = result.RecommendedPullDelayMs > 0
+                    ? result.RecommendedPullDelayMs
+                    : 2000;
+
+                if (stopwatch.Elapsed + TimeSpan.FromMilliseconds(delayMs) >= timeout)
+                {
+                    break;
+                }
+
+                await Task.Delay(delayMs, cancellationToken);
             }
 
-            throw new TimeoutException($"Scrape did not complete within {maxPolls} polls");
+            throw new TimeoutException($"Scrape did not complete within {timeout.TotalSeconds} seconds");
         }
 
         public void Dispose()
