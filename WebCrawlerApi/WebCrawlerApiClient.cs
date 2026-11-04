@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Net.Http.Headers;
 using System.Linq;
+using System.Diagnostics;
 using WebCrawlerApi.Models;
 
 namespace WebCrawlerApi
@@ -13,10 +14,17 @@ namespace WebCrawlerApi
     public class WebCrawlerApiClient : IDisposable
     {
         private const int DefaultPollDelaySeconds = 5;
+        private const int DefaultScrapeMaxPolls = 1000;
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
         private readonly string _version;
         private readonly bool _disposeHttpClient;
+
+        /// <summary>Maximum total time <see cref="ScrapeAndWaitAsync"/> waits for a scrape. Default 400 seconds.</summary>
+        public TimeSpan ScrapeMaxWait { get; set; } = TimeSpan.FromSeconds(400);
+
+        /// <summary>Poll delay used by <see cref="ScrapeAndWaitAsync"/> when the server does not recommend one. Default 2 seconds.</summary>
+        public TimeSpan ScrapePollDelay { get; set; } = TimeSpan.FromSeconds(2);
 
         public WebCrawlerApiClient(string apiKey, string baseUrl = "https://api.webcrawlerapi.com", string version = "v1", HttpClient? httpClient = null)
         {
@@ -201,38 +209,53 @@ namespace WebCrawlerApi
                    ?? throw new JsonException("Failed to deserialize scrape response");
         }
 
+        /// <summary>
+        /// Starts a scrape asynchronously and polls until it is done or failed.
+        /// Mirrors the JS SDK <c>scrape()</c>: waits up to <see cref="ScrapeMaxWait"/> (400s by default) and
+        /// <paramref name="maxPolls"/> polls, sleeps for the server-recommended delay
+        /// (<c>recommended_pull_delay_ms</c>, falling back to <see cref="ScrapePollDelay"/>), returns the
+        /// result as soon as it is done or carries an error code, and returns the last known (in-progress)
+        /// state on timeout instead of throwing.
+        /// </summary>
         public async Task<ScrapeResponse> ScrapeAndWaitAsync(
             ScrapeRequest request,
-            int maxPolls = 100,
+            int maxPolls = DefaultScrapeMaxPolls,
             CancellationToken cancellationToken = default)
         {
-            // maxPolls is kept for backward compatibility; the wait is bounded by elapsed time.
-            var timeout = TimeSpan.FromSeconds(400);
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var scrapeId = await ScrapeAsync(request, cancellationToken);
 
-            while (true)
-            {
-                var result = await GetScrapeAsync(scrapeId.Id, cancellationToken);
+            var stopwatch = Stopwatch.StartNew();
+            var polls = 0;
+            ScrapeResponse? result = null;
 
-                if (result.Success || result.ErrorCode != null)
+            // Bounded by both elapsed time (ScrapeMaxWait) and maxPolls
+            while (polls < maxPolls && stopwatch.Elapsed < ScrapeMaxWait)
+            {
+                result = await GetScrapeAsync(scrapeId.Id, cancellationToken);
+
+                if (result.Status == "done" || result.Success || result.ErrorCode != null)
                 {
                     return result;
                 }
 
-                var delayMs = result.RecommendedPullDelayMs > 0
-                    ? result.RecommendedPullDelayMs
-                    : 2000;
+                // Use the server-recommended delay when present, otherwise the default
+                var delay = result.RecommendedPullDelayMs > 0
+                    ? TimeSpan.FromMilliseconds(result.RecommendedPullDelayMs)
+                    : ScrapePollDelay;
 
-                if (stopwatch.Elapsed + TimeSpan.FromMilliseconds(delayMs) >= timeout)
+                // Don't sleep past the overall deadline
+                var remaining = ScrapeMaxWait - stopwatch.Elapsed;
+                if (remaining <= TimeSpan.Zero)
                 {
                     break;
                 }
 
-                await Task.Delay(delayMs, cancellationToken);
+                await Task.Delay(delay < remaining ? delay : remaining, cancellationToken);
+                polls++;
             }
 
-            throw new TimeoutException($"Scrape did not complete within {timeout.TotalSeconds} seconds");
+            // Return the last known state on timeout
+            return result ?? await GetScrapeAsync(scrapeId.Id, cancellationToken);
         }
 
         public void Dispose()

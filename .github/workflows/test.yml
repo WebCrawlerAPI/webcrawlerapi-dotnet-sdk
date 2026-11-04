@@ -1,0 +1,17 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Unit tests (offline)
+        run: dotnet test WebCrawlerApi.UnitTests/WebCrawlerApi.UnitTests.csproj -c Release
