@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -256,6 +257,125 @@ namespace WebCrawlerApi
 
             // Return the last known state on timeout
             return result ?? await GetScrapeAsync(scrapeId.Id, cancellationToken);
+        }
+
+        /// <summary>
+        /// Batch overload of <see cref="ScrapeAndWaitAsync(ScrapeRequest,int,CancellationToken)"/>: creates a batch
+        /// for a list of URLs, polls until it finishes (or <see cref="ScrapeMaxWait"/> / <paramref name="maxPolls"/>
+        /// is hit, then returns the last known state) and returns progress plus the first page of items
+        /// (<c>Next</c> is the cursor for more, see <see cref="GetBatchAsync"/>).
+        /// </summary>
+        public async Task<BatchScrapeResponse> ScrapeAndWaitAsync(
+            IEnumerable<string> urls,
+            BatchScrapeOptions? options = null,
+            int maxPolls = DefaultScrapeMaxPolls,
+            CancellationToken cancellationToken = default)
+        {
+            var created = await ScrapeBatchAsync(urls, options, cancellationToken);
+
+            var stopwatch = Stopwatch.StartNew();
+            var polls = 0;
+            BatchScrapeResponse? result = null;
+
+            while (polls < maxPolls && stopwatch.Elapsed < ScrapeMaxWait)
+            {
+                result = await GetBatchAsync(created.Id, cancellationToken: cancellationToken);
+                if (result.IsTerminal)
+                {
+                    return result;
+                }
+
+                var remaining = ScrapeMaxWait - stopwatch.Elapsed;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    break;
+                }
+
+                await Task.Delay(ScrapePollDelay < remaining ? ScrapePollDelay : remaining, cancellationToken);
+                polls++;
+            }
+
+            return result ?? await GetBatchAsync(created.Id, cancellationToken: cancellationToken);
+        }
+
+        /// <summary>Creates a batch scrape without waiting (POST /v2/batch/scrape). Returns the batch id and rejected URLs.</summary>
+        public async Task<BatchScrapeCreated> ScrapeBatchAsync(
+            IEnumerable<string> urls,
+            BatchScrapeOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            var o = options ?? new BatchScrapeOptions();
+            var payload = new Dictionary<string, object?> { ["urls"] = urls.ToArray() };
+            if (o.OutputFormats != null) payload["output_formats"] = o.OutputFormats;
+            if (o.MainContentOnly != null) payload["main_content_only"] = o.MainContentOnly;
+            if (o.CleanSelectors != null) payload["clean_selectors"] = o.CleanSelectors;
+            if (o.MaxConcurrency != null) payload["max_concurrency"] = o.MaxConcurrency;
+            if (o.IgnoreInvalidUrls != null) payload["ignore_invalid_urls"] = o.IgnoreInvalidUrls;
+            if (o.WebhookUrl != null) payload["webhook_url"] = o.WebhookUrl;
+            if (o.MaxAge != null) payload["max_age"] = o.MaxAge;
+            if (o.RespectRobotsTxt != null) payload["respect_robots_txt"] = o.RespectRobotsTxt;
+
+            var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/v2/batch/scrape", payload, cancellationToken);
+            await EnsureBatchSuccessAsync(response, "Batch scrape request", cancellationToken);
+
+            return await response.Content.ReadFromJsonAsync<BatchScrapeCreated>(cancellationToken: cancellationToken)
+                   ?? throw new JsonException("Failed to deserialize batch scrape response");
+        }
+
+        /// <summary>Gets batch progress and one page of items (GET /v2/batch/scrape/:id). Pass the previous <c>Next</c> as <paramref name="cursor"/>.</summary>
+        public async Task<BatchScrapeResponse> GetBatchAsync(
+            string batchId,
+            int? limit = null,
+            string? cursor = null,
+            CancellationToken cancellationToken = default)
+        {
+            var query = new List<string>();
+            if (limit != null) query.Add($"limit={limit}");
+            if (!string.IsNullOrEmpty(cursor)) query.Add($"cursor={Uri.EscapeDataString(cursor)}");
+            var qs = query.Count > 0 ? "?" + string.Join("&", query) : "";
+
+            var response = await _httpClient.GetAsync($"{_baseUrl}/v2/batch/scrape/{batchId}{qs}", cancellationToken);
+            await EnsureBatchSuccessAsync(response, "Batch status request", cancellationToken);
+
+            return await response.Content.ReadFromJsonAsync<BatchScrapeResponse>(cancellationToken: cancellationToken)
+                   ?? throw new JsonException("Failed to deserialize batch scrape status");
+        }
+
+        /// <summary>Lists failed URLs and robots.txt-blocked URLs of a batch (GET /v2/batch/scrape/:id/errors).</summary>
+        public async Task<BatchScrapeErrorsResponse> GetBatchErrorsAsync(string batchId, CancellationToken cancellationToken = default)
+        {
+            var response = await _httpClient.GetAsync($"{_baseUrl}/v2/batch/scrape/{batchId}/errors", cancellationToken);
+            await EnsureBatchSuccessAsync(response, "Batch errors request", cancellationToken);
+
+            return await response.Content.ReadFromJsonAsync<BatchScrapeErrorsResponse>(cancellationToken: cancellationToken)
+                   ?? throw new JsonException("Failed to deserialize batch errors");
+        }
+
+        /// <summary>Cancels a running batch (DELETE /v2/batch/scrape/:id). Returns the resulting status.</summary>
+        public async Task<string> CancelBatchAsync(string batchId, CancellationToken cancellationToken = default)
+        {
+            var response = await _httpClient.DeleteAsync($"{_baseUrl}/v2/batch/scrape/{batchId}", cancellationToken);
+            await EnsureBatchSuccessAsync(response, "Batch cancel request", cancellationToken);
+
+            var result = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
+            return result.TryGetProperty("status", out var status) ? status.GetString() ?? "canceled" : "canceled";
+        }
+
+        private static async Task EnsureBatchSuccessAsync(HttpResponseMessage response, string what, CancellationToken cancellationToken)
+        {
+            if (response.IsSuccessStatusCode) return;
+
+            string? message = null;
+            try
+            {
+                var err = await response.Content.ReadFromJsonAsync<ScrapeResponse>(cancellationToken: cancellationToken);
+                message = err?.ErrorMessage;
+            }
+            catch (JsonException) { }
+
+            throw new HttpRequestException(message != null
+                ? $"{what} failed: {message}"
+                : $"{what} failed with status code {(int)response.StatusCode}");
         }
 
         public void Dispose()

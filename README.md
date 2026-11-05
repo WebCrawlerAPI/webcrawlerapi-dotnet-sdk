@@ -156,6 +156,30 @@ do
 Console.WriteLine($"Scrape completed: {result.Success}");
 ```
 
+### Batch Scraping (v2/batch/scrape)
+
+Pass a list of URLs to `ScrapeAndWaitAsync` to scrape them as one batch. It creates the batch, polls until it
+finishes and returns progress plus the first page of items (`Next` is the cursor for more).
+
+```csharp
+var batch = await client.ScrapeAndWaitAsync(
+    new[] { "https://example.com/", "https://example.com/pricing" },
+    new BatchScrapeOptions { OutputFormats = new[] { "markdown" }, MaxConcurrency = 5 });
+
+Console.WriteLine($"{batch.Status}: {batch.Completed}/{batch.Total} done, {batch.Failed} failed");
+foreach (var item in batch.Data)
+    Console.WriteLine($"{item.Url} {item.Status} {item.MarkdownUrl}");
+
+// Next page
+if (!string.IsNullOrEmpty(batch.Next))
+    batch = await client.GetBatchAsync(batch.Id, limit: 100, cursor: batch.Next);
+```
+
+Non-waiting helpers: `ScrapeBatchAsync(urls, options)` (returns `Id` and `InvalidUrls`), `GetBatchAsync(id, limit, cursor)`,
+`GetBatchErrorsAsync(id)` and `CancelBatchAsync(id)`.
+
+Full batch documentation: [docs/batch-scrape.md](docs/batch-scrape.md).
+
 ## Crawl API (v1/crawl)
 
 The Crawl API is designed for multi-page crawling operations.
